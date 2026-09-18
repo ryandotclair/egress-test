@@ -1,17 +1,19 @@
 #!/bin/bash
 
+HOST=""
 IP=""
 DEBUG=false
 DETACH=false
 
 usage() {
-    echo "Usage: $0 --ip <k8s-webserver-ip> [--debug] [--detach]"
+    echo "Usage: $0 [--ip <k8s-lb-ip> | --host <k8s-lb-host>] [--debug] [--detach]"
     exit 1
 }
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --ip) IP="$2"; shift ;;
+        --host) HOST="$2"; shift ;;
         --debug) DEBUG=true ;;
         --detach) DETACH=true ;;
         *) usage ;;
@@ -19,7 +21,12 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-if [[ -z "$IP" ]]; then
+# Prefer HOST over IP if both provided
+if [[ -n "$HOST" ]]; then
+    ENDPOINT="$HOST"
+elelif [[ -n "$IP" ]]; then
+    ENDPOINT="$IP"
+else
     usage
 fi
 
@@ -39,15 +46,15 @@ if [ "$DETACH" = true ]; then
     echo "-----------------------------"
     read -n 1 -s -r -p "Press any key to launch local-webserver... "
     echo ""
-    python3 -u local-webserver.py --endpoint "$IP"
+    python3 -u local-webserver.py --endpoint "$ENDPOINT"
     exit 0
 fi
 
 echo "--- Testing Egress IP ---"
 
 # Start local server in background
-echo "Starting local-webserver on port 8080 targeting $IP..."
-python3 -u local-webserver.py --endpoint "$IP" &
+echo "Starting local-webserver on port 8080 targeting $ENDPOINT..."
+python3 -u local-webserver.py --endpoint "$ENDPOINT" &
 SERVER_PID=$!
 
 # Give server a moment to start
@@ -81,4 +88,5 @@ fi
 echo "-----------------------------"
 
 kill $SERVER_PID
+
 
