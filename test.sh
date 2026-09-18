@@ -31,12 +31,15 @@ fi
 if [ "$DETACH" = true ]; then
     echo "-----------------------------"
     echo "DETACHED MODE"
-    echo "Run this command locally to start the test:"
-    echo "curl http://localhost:8080/api/start"
+    echo "1. Start the trigger:"
+    echo "   curl http://localhost:8080/api/start"
+    echo ""
+    echo "2. Wait a few seconds, then check results:"
+    echo "   curl http://localhost:8080/api/results"
     echo "-----------------------------"
     read -n 1 -s -r -p "Press any key to launch local-webserver... "
     echo ""
-    python3 local-webserver.py --endpoint "$IP"
+    python3 -u local-webserver.py --endpoint "$IP"
     exit 0
 fi
 
