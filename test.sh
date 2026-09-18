@@ -24,7 +24,7 @@ done
 # Prefer HOST over IP if both provided
 if [[ -n "$HOST" ]]; then
     ENDPOINT="$HOST"
-elelif [[ -n "$IP" ]]; then
+elif [[ -n "$IP" ]]; then
     ENDPOINT="$IP"
 else
     usage
