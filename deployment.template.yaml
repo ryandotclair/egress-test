@@ -13,18 +13,20 @@ data:
             def do_GET(self):
                 client_ip = self.client_address[0]
                 print(f"DEBUG: Request received - Path: {self.path}, Client IP: {client_ip}")
-                if self.path == "/api/ack":
-                    print(f"DEBUG: Processing /api/ack for {client_ip}")
-                    print(f"DEBUG: Attempting to send ACK back to source IP: {client_ip}")
-                    self.send_response(200)
-                    self.end_headers()
-                    self.wfile.write(b"ACK")
-                    try:
-                        requests.get(f"http://{client_ip}:8080/api/ack", timeout=30)
-                        print(f"DEBUG: Successfully sent ACK back to {client_ip}")
-                    except Exception as e:
-                        print(f"ERROR: Failed to send ACK back to {client_ip}: {e}")
-                else:
+                        if self.path == "/api/ack":
+                            print(f"DEBUG: Processing /api/ack for {client_ip}")
+                            print(f"DEBUG: Attempting to send ACK back to source IP: {client_ip}")
+                            self.send_response(200)
+                            self.end_headers()
+                            self.wfile.write(b"ACK")
+                            try:
+                                # CORRECTED: This must be /api/callback to distinguish from the first return
+                                requests.get(f"http://{client_ip}:8080/api/callback", timeout=30)
+                                print(f"DEBUG: Successfully sent callback to {client_ip}")
+                            except Exception as e:
+                                print(f"ERROR: Failed to send callback to {client_ip}: {e}")
+                        else:
+
                     print(f"DEBUG: 404 Not Found for path {self.path} from {client_ip}")
                     self.send_response(404)
                     self.end_headers()
