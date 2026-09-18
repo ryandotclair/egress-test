@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-webserver-config
+data:
+  server.py: |
+    import argparse
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import requests
+
+    def run_server(port):
+        class RequestHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                client_ip = self.client_address[0]
+                print(f"DEBUG: Request received - Path: {self.path}, Client IP: {client_ip}")
+                if self.path == "/api/ack":
+                    print(f"DEBUG: Processing /api/ack for {client_ip}")
+                    print(f"DEBUG: Attempting to send ACK back to source IP: {client_ip}")
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"ACK")
+                    try:
+                        requests.get(f"http://{client_ip}:8080/api/ack", timeout=30)
+                        print(f"DEBUG: Successfully sent ACK back to {client_ip}")
+                    except Exception as e:
+                        print(f"ERROR: Failed to send ACK back to {client_ip}: {e}")
+                else:
+                    print(f"DEBUG: 404 Not Found for path {self.path} from {client_ip}")
+                    self.send_response(404)
+                    self.end_headers()
+
+        server = HTTPServer(("0.0.0.0", port), RequestHandler)
+        print(f"K8s server running on port {port}...")
+        server.serve_forever()
+
+    if __name__ == "__main__":
+        run_server(80)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-webserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-webserver
+  template:
+    metadata:
+      labels:
+        app: k8s-webserver
+    spec:
+      containers:
+      - name: k8s-webserver
+        image: {{IMAGE}}
+        imagePullPolicy: Always
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        command: ["/bin/sh", "-c"]
+        args: ["pip install requests && python -u /app/server.py"]
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: server-vol
+          mountPath: /app
+      volumes:
+      - name: server-vol
+        configMap:
+          name: k8s-webserver-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-webserver-service
+spec:
+  selector:
+    app: k8s-webserver
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer
