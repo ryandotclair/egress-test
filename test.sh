@@ -54,41 +54,28 @@ SERVER_PID=$!
 sleep 2
 
 echo "Sending request to /api/start..."
-RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" http://localhost:8080/api/start 2>/tmp/curl_err)
+curl -s http://localhost:8080/api/start
+echo -e "\nWaiting for callbacks to complete..."
+sleep 5
 
-if [[ $? -ne 0 ]]; then
-    echo "Error: curl command failed to execute."
-    cat /tmp/curl_err
-    kill $SERVER_PID
-    exit 1
-fi
+echo "--- Final Results ---"
+RESULT=$(curl -s http://localhost:8080/api/results)
+echo "$RESULT" | python3 -m json.tool
 
-# Separate body and status code
-HTTP_BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
-HTTP_CODE=$(echo "$RESPONSE" | grep 'HTTP_CODE:' | cut -d':' -f2)
+# Check if we actually got IPs back
+OUTSIDE=$(echo "$RESULT" | grep -o '"outside_cluster_initiated_egress_ip": "[^"]*"' | cut -d'"' -f4)
+INSIDE=$(echo "$RESULT" | grep -o '"inside_cluster_initiated_egress_ip": "[^"]*"' | cut -d'"' -f4)
 
 echo "-----------------------------"
-echo "HTTP Status: $HTTP_CODE"
-if [[ "$HTTP_CODE" == "200" ]]; then
-    echo "Result: SUCCESS"
-    echo "$HTTP_BODY" | python3 -m json.tool
+if [[ "$OUTSIDE" == "null" && "$INSIDE" == "null" ]]; then
+    echo "Result: FAILED - No egress IPs captured. Check connectivity and firewall."
+elif [[ "$OUTSIDE" == "$INSIDE" ]]; then
+    echo "Result: SUCCESS - Egress IPs match: $OUTSIDE"
 else
-    echo "Result: FAILED"
-    echo "Response Body: $HTTP_BODY"
-    echo "-----------------------------"
-    echo "Troubleshooting:"
-    if [[ "$HTTP_CODE" == "500" ]]; then
-        echo "- Local server could not reach $IP. Check K8s LoadBalancer IP and firewall rules."
-    elif [[ "$HTTP_CODE" == "404" ]]; then
-        echo "- Endpoint /api/start not found on local server."
-    else
-        echo "- Unexpected error occurred. Check server logs."
-    fi
-fi
-
-if [ "$DETACH" = true ]; then
-    echo "Detached mode: Local server will continue running in background (PID: $SERVER_PID)."
-else
-    kill $SERVER_PID
+    echo "Result: SUCCESS - Different egress IPs detected!"
+    echo "Outside Initiated: $OUTSIDE"
+    echo "Inside Initiated: $INSIDE"
 fi
 echo "-----------------------------"
+
+kill $SERVER_PID
