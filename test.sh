@@ -65,17 +65,20 @@ echo "$RESULT" | python3 -m json.tool
 # Parse JSON using python for reliability
 OUTSIDE=$(echo "$RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin).get('outside_cluster_initiated_egress_ip', 'null'))")
 INSIDE=$(echo "$RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin).get('inside_cluster_initiated_egress_ip', 'null'))")
+INGRESS=$(echo "$RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin).get('ingress_k8s_ip', 'null'))")
 
 echo "-----------------------------"
-if [[ "$OUTSIDE" == "None" || "$OUTSIDE" == "null" ]] && [[ "$INSIDE" == "None" || "$INSIDE" == "null" ]]; then
+if [[ "$OUTSIDE" == "null" && "$INSIDE" == "null" ]]; then
     echo "Result: FAILED - No egress IPs captured. Check connectivity and firewall."
 elif [[ "$OUTSIDE" == "$INSIDE" ]]; then
     echo "Result: SUCCESS - Egress IPs match: $OUTSIDE"
 else
     echo "Result: SUCCESS - Different egress IPs detected!"
+    echo "Ingress K8s IP: $INGRESS"
     echo "Outside Initiated: $OUTSIDE"
     echo "Inside Initiated: $INSIDE"
 fi
 echo "-----------------------------"
 
 kill $SERVER_PID
+

@@ -6,6 +6,7 @@ import requests
 
 # Global store for egress results
 results = {
+    "ingress_k8s_ip": None,
     "outside_cluster_initiated_egress_ip": None,
     "inside_cluster_initiated_egress_ip": None
 }
@@ -15,7 +16,9 @@ def run_server(port, endpoint):
         def do_GET(self):
             global results
             if self.path == '/api/start':
+                results["ingress_k8s_ip"] = endpoint
                 print(f"DEBUG: Triggering K8s server at {endpoint}...")
+
                 try:
                     # We use a socket directly to reliably capture the responding IP
                     with socket.create_connection((endpoint, 80), timeout=5) as s:
