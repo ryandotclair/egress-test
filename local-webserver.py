@@ -1,8 +1,8 @@
 import argparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
-import socket
 import requests
+from urllib.parse import urlparse
 
 # Global store for egress results
 results = {
@@ -11,22 +11,30 @@ results = {
     "inside_cluster_initiated_egress_ip": None
 }
 
-def run_server(port, endpoint):
+def run_server(port, endpoint_url):
+    # Parse the URL to extract host for logging
+    parsed = urlparse(endpoint_url)
+    host = parsed.hostname or endpoint_url
+    
     class RequestHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             global results
             if self.path == '/api/start':
-                results["ingress_k8s_ip"] = endpoint
-                print(f"DEBUG: Triggering K8s server at {endpoint}...")
-
+                # Record the full endpoint for reporting
+                results["ingress_k8s_ip"] = endpoint_url
+                print(f"DEBUG: Triggering {endpoint_url} ...")
                 try:
-                    # We use a socket directly to reliably capture the responding IP
-                    with socket.create_connection((endpoint, 80), timeout=5) as s:
-                        s.sendall(b"GET /api/ack HTTP/1.1\r\nHost: " + endpoint.encode() + b"\r\n\r\n")
-                        # The peername here is the IP that responded to our SYN
-                        responding_ip = s.getpeername()[0]
-                        print(f"DEBUG: Response received from IP: {responding_ip}")
-                        results["outside_cluster_initiated_egress_ip"] = responding_ip
+                    # Use requests so we can handle http/https and self‑signed certs
+                    resp = requests.get(endpoint_url, timeout=5, verify=False)
+                    # Try to pull the peer IP from the underlying socket
+                    peer_ip = None
+                    if hasattr(resp.raw, "_connection") and resp.raw._connection:
+                        sock = resp.raw._connection.sock
+                        if sock:
+                            peer_ip = sock.getpeername()[0]
+                    if peer_ip:
+                        results["outside_cluster_initiated_egress_ip"] = peer_ip
+                        print(f"DEBUG: Response received from IP: {peer_ip}")
                 except Exception as e:
                     print(f"DEBUG: Initial trigger error: {e}")
                 
@@ -39,8 +47,6 @@ def run_server(port, endpoint):
             elif self.path == '/api/ack':
                 src_ip = self.client_address[0]
                 print(f"DEBUG: RECEIVED ACK from K8s server! Source IP: {src_ip}")
-                # We don't update outside_cluster_initiated_egress_ip here 
-                # because that's for the response to our initial request.
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b"ACK")
@@ -61,19 +67,18 @@ def run_server(port, endpoint):
                 self.end_headers()
                 self.wfile.write(json.dumps(results, indent=4).encode())
                 print(f"DEBUG: Returned results to {self.client_address[0]}")
-
             else:
                 print(f"Received request from {self.client_address[0]} for {self.path} - 404")
                 self.send_response(404)
                 self.end_headers()
 
     server = HTTPServer(('0.0.0.0', port), RequestHandler)
-    print(f"Local server running on port {port}, targeting endpoint {endpoint}...")
+    print(f"Local server running on port {port}, targeting endpoint {endpoint_url} ...")
     server.serve_forever()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--endpoint', required=True, help='The IP address of the k8s-webserver')
+    parser.add_argument('--endpoint', required=True, help='Full URL (including scheme and path) of the k8s target')
     parser.add_argument('--port', type=int, default=8080, help='Port to run on')
     args = parser.parse_args()
     run_server(args.port, args.endpoint)

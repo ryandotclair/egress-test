@@ -1,19 +1,17 @@
 #!/bin/bash
 
-HOST=""
-IP=""
+ENDPOINT=""
 DEBUG=false
 DETACH=false
 
 usage() {
-    echo "Usage: $0 [--ip <k8s-lb-ip> | --host <k8s-lb-host>] [--debug] [--detach]"
+    echo "Usage: $0 --endpoint <full-url> [--debug] [--detach]"
     exit 1
 }
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --ip) IP="$2"; shift ;;
-        --host) HOST="$2"; shift ;;
+        --endpoint) ENDPOINT="$2"; shift ;;
         --debug) DEBUG=true ;;
         --detach) DETACH=true ;;
         *) usage ;;
@@ -21,12 +19,7 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-# Prefer HOST over IP if both provided
-if [[ -n "$HOST" ]]; then
-    ENDPOINT="$HOST"
-elif [[ -n "$IP" ]]; then
-    ENDPOINT="$IP"
-else
+if [[ -z "$ENDPOINT" ]]; then
     usage
 fi
 
@@ -88,5 +81,6 @@ fi
 echo "-----------------------------"
 
 kill $SERVER_PID
+
 
 
