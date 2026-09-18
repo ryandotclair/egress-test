@@ -4,9 +4,12 @@ set -e
 # Defaults
 IMAGE=""
 NAMESPACE=""
+PATH_VAL="/api/ack"
+INGRESS_CLASS="nginx"
+USE_TRAEFIK=false
 
 usage() {
-    echo "Usage: $0 --image <image-name> --namespace <namespace>"
+    echo "Usage: $0 --image <image-name> --namespace <namespace> [--traefik] [--path <path>] [--ingressclass <class>]"
     exit 1
 }
 
@@ -14,6 +17,9 @@ while [[ "$#" -gt 0 ]]; do
     case $1 in
         --image) IMAGE="$2"; shift ;;
         --namespace) NAMESPACE="$2"; shift ;;
+        --traefik) USE_TRAEFIK=true ;;
+        --path) PATH_VAL="$2"; shift ;;
+        --ingressclass) INGRESS_CLASS="$2"; shift ;;
         *) usage ;;
     esac
     shift
@@ -52,8 +58,15 @@ fi
 echo "Creating namespace $NAMESPACE..."
 kubectl create namespace "$NAMESPACE" || echo "Namespace already exists, skipping..."
 
-echo "Generating deployment from template..."
-sed "s|{{IMAGE}}|$IMAGE|g" deployment.template.yaml > deployment.yaml
+if [ "$USE_TRAEFIK" = true ]; then
+    echo "Using Traefik template..."
+    TEMPLATE="deployment.traefik.template.yaml"
+    sed "s|{{IMAGE}}|$IMAGE|g; s|{{PATH}}|$PATH_VAL|g; s|{{INGRESS_CLASS}}|$INGRESS_CLASS|g" "$TEMPLATE" > deployment.yaml
+else
+    echo "Using standard template..."
+    TEMPLATE="deployment.template.yaml"
+    sed "s|{{IMAGE}}|$IMAGE|g" "$TEMPLATE" > deployment.yaml
+fi
 
 echo "Deploying to K8s..."
 if ! kubectl apply -f deployment.yaml -n "$NAMESPACE" 2>/tmp/k8s_err; then
