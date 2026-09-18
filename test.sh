@@ -62,12 +62,12 @@ echo "--- Final Results ---"
 RESULT=$(curl -s http://localhost:8080/api/results)
 echo "$RESULT" | python3 -m json.tool
 
-# Check if we actually got IPs back
-OUTSIDE=$(echo "$RESULT" | grep -o '"outside_cluster_initiated_egress_ip": "[^"]*"' | cut -d'"' -f4)
-INSIDE=$(echo "$RESULT" | grep -o '"inside_cluster_initiated_egress_ip": "[^"]*"' | cut -d'"' -f4)
+# Parse JSON using python for reliability
+OUTSIDE=$(echo "$RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin).get('outside_cluster_initiated_egress_ip', 'null'))")
+INSIDE=$(echo "$RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin).get('inside_cluster_initiated_egress_ip', 'null'))")
 
 echo "-----------------------------"
-if [[ "$OUTSIDE" == "null" && "$INSIDE" == "null" ]]; then
+if [[ "$OUTSIDE" == "None" || "$OUTSIDE" == "null" ]] && [[ "$INSIDE" == "None" || "$INSIDE" == "null" ]]; then
     echo "Result: FAILED - No egress IPs captured. Check connectivity and firewall."
 elif [[ "$OUTSIDE" == "$INSIDE" ]]; then
     echo "Result: SUCCESS - Egress IPs match: $OUTSIDE"
