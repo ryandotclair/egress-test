@@ -6,37 +6,72 @@ data:
   server.py: |
     import argparse
     from http.server import HTTPServer, BaseHTTPRequestHandler
-    import requests
+    import os
 
     def run_server(port):
         class RequestHandler(BaseHTTPRequestHandler):
             def do_GET(self):
                 client_ip = self.client_address[0]
-                print(f"DEBUG: Request received - Path: {self.path}, Client IP: {client_ip}")
-                        if self.path == "/api/ack":
-                            print(f"DEBUG: Processing /api/ack for {client_ip}")
-                            print(f"DEBUG: Attempting to send ACK back to source IP: {client_ip}")
-                            self.send_response(200)
-                            self.end_headers()
-                            self.wfile.write(b"ACK")
-                            try:
-                                # CORRECTED: This must be /api/callback to distinguish from the first return
-                                requests.get(f"http://{client_ip}:8080/api/callback", timeout=30)
-                                print(f"DEBUG: Successfully sent callback to {client_ip}")
-                            except Exception as e:
-                                print(f"ERROR: Failed to send callback to {client_ip}: {e}")
-                        else:
-
-                    print(f"DEBUG: 404 Not Found for path {self.path} from {client_ip}")
+                print(f"DEBUG: Request received from {client_ip} for {self.path}")
+                if self.path == "/api/ack":
+                    # Write the IP to a file to trigger the sidecar
+                    try:
+                        with open("/tmp/egress_trigger", "w") as f:
+                            f.write(client_ip)
+                        print(f"DEBUG: Wrote trigger file for IP: {client_ip}")
+                    except Exception as e:
+                        print(f"ERROR writing trigger file: {e}")
+                    
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"ACK")
+                else:
                     self.send_response(404)
                     self.end_headers()
 
         server = HTTPServer(("0.0.0.0", port), RequestHandler)
-        print(f"K8s server running on port {port}...")
+        print(f"Main server running on port {port}...")
         server.serve_forever()
 
     if __name__ == "__main__":
         run_server(80)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-sidecar-config
+data:
+  watcher.py: |
+    import os
+    import time
+    import subprocess
+
+    TRIGGER_FILE = "/tmp/egress_trigger"
+    while True:
+        if os.path.exists(TRIGGER_FILE):
+            try:
+                with open(TRIGGER_FILE, "r") as f:
+                    target_ip = f.read().strip()
+                
+                print(f"--- SIDECAR: Detected trigger for {target_ip} ---")
+                print(f"Sending secondary callback to http://{target_ip}:8080/api/callback...")
+                
+                # Using curl via subprocess to avoid connection pooling issues with requests
+                result = subprocess.run(
+                    ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", f"http://{target_ip}:8080/api/callback"],
+                    capture_output=True, text=True
+                )
+                
+                print(f"HTTP Code received: {result.stdout.strip()}")
+                print(f"--- SIDECAR: Done with {target_ip} ---")
+            except Exception as e:
+                print(f"ERROR in sidecar: {e}")
+            finally:
+                try:
+                    os.remove(TRIGGER_FILE)
+                except:
+                    pass
+        time.sleep(1)
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -53,23 +88,40 @@ spec:
         app: k8s-webserver
     spec:
       containers:
-      - name: k8s-webserver
+      - name: webserver
         image: {{IMAGE}}
         imagePullPolicy: Always
         env:
         - name: PYTHONUNBUFFERED
           value: "1"
         command: ["/bin/sh", "-c"]
-        args: ["pip install requests && python -u /app/server.py"]
+        args: ["python /app/server.py"]
         ports:
         - containerPort: 80
         volumeMounts:
         - name: server-vol
           mountPath: /app
+        - name: trigger-vol
+          mountPath: /tmp
+      - name: sidecar
+        image: {{IMAGE}}
+        imagePullPolicy: Always
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        command: ["/bin/sh", "-c"]
+        args: ["python /app/watcher.py"]
+        volumeMounts:
+        - name: server-vol
+          mountPath: /app
+        - name: trigger-vol
+          mountPath: /tmp
       volumes:
       - name: server-vol
         configMap:
           name: k8s-webserver-config
+      - name: trigger-vol
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
